@@ -27,7 +27,16 @@ ADMIN_IDS = []
 
 # --- Database Path Setup ---
 if RENDER_DISK_MOUNT_PATH:
-    DB_FILE_PATH = os.path.join(RENDER_DISK_MOUNT_PATH, "bot.db")
+    # Ensure the directory exists on the persistent disk
+    if not os.path.exists(RENDER_DISK_MOUNT_PATH):
+        try:
+            os.makedirs(RENDER_DISK_MOUNT_PATH)
+        except OSError as e:
+            # Handle error if directory creation fails, e.g., log and fallback
+            print(f"Error creating RENDER_DISK_MOUNT_PATH {RENDER_DISK_MOUNT_PATH}: {e}") # Use logger ideally
+            DB_FILE_PATH = "bot.db" # Fallback
+    else:
+        DB_FILE_PATH = os.path.join(RENDER_DISK_MOUNT_PATH, "bot.db")
 else:
     DB_FILE_PATH = "bot.db" 
 DB_NAME = DB_FILE_PATH
@@ -222,6 +231,9 @@ def get_shopping_list_from_db():
 # --- Helper: Display Main Menu ---
 async def display_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edit_message: bool = False):
     user = update.effective_user
+    if not user: # Should not happen if called from a valid update
+        logger.error("display_main_menu called without effective_user in update")
+        return 
     user_id = user.id
     if 'language_code' not in context.user_data: 
         context.user_data['language_code'] = await get_user_language(context, user_id)
@@ -246,38 +258,38 @@ async def display_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     except Exception as e:
         logger.warning(f"Display main menu error (edit={edit_message}): {e}. Sending new message.")
         if user_id: await context.bot.send_message(chat_id=user_id, text=welcome_text, reply_markup=reply_markup, parse_mode='HTML')
-    # No state returned by display functions. They just display.
+    # This function purely displays. State transitions are handled by callers or ConversationHandlers.
 
 # --- Start Command & General Back to Main Menu ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE): 
     user = update.effective_user
     await ensure_user_exists(user.id, user.first_name or "", user.username or "", context) 
     
-    # Preserve language, clear other potentially stale conversation data
     lang = context.user_data.get('language_code')
-    temp_keys_to_clear = [k for k in context.user_data if k not in ['language_code', 'cart']] # Preserve cart too
+    # Preserve language and cart, clear other temp conv data
+    cart_data = context.user_data.get('cart')
+    temp_keys_to_clear = [k for k in context.user_data if k not in ['language_code', 'cart']] 
     for k_to_clear in temp_keys_to_clear:
         context.user_data.pop(k_to_clear, None)
     
-    if not lang and user: # If language was somehow lost, re-fetch
-         context.user_data['language_code'] = await get_user_language(context, user.id)
-    
+    if lang: context.user_data['language_code'] = lang
+    elif user: context.user_data['language_code'] = await get_user_language(context, user.id)
+    if cart_data: context.user_data['cart'] = cart_data # Restore cart if it existed
+
     await display_main_menu(update, context)
 
 async def back_to_main_menu_cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if update.callback_query: await update.callback_query.answer()
     
-    # Preserve language. Cart is NOT cleared here.
-    # Clear only temporary/transient state variables if any were set for this specific sub-flow.
-    # For example, if a sub-conversation set 'editing_product_id', it should clear it upon its own completion/cancellation.
-    # This general "back to main menu" should be less aggressive with clearing.
     lang = context.user_data.get('language_code')
-    transient_keys = ['current_product_id', 'current_product_name', 'current_product_price', 'new_pname', 'editing_pid']
-    for t_key in transient_keys:
-        context.user_data.pop(t_key, None)
+    # Preserve language and cart. Clear other transient data.
+    cart_data = context.user_data.get('cart') 
+    transient_keys = [k for k in context.user_data if k not in ['language_code', 'cart']]
+    for t_key in transient_keys: context.user_data.pop(t_key, None)
     
     if lang: context.user_data['language_code'] = lang
     elif update.effective_user: context.user_data['language_code'] = await get_user_language(context, update.effective_user.id)
+    if cart_data: context.user_data['cart'] = cart_data
 
     await display_main_menu(update, context, edit_message=bool(update.callback_query))
     return ConversationHandler.END 
@@ -425,7 +437,7 @@ async def order_flow_checkout_cb(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query 
     await query.answer()
     
-    user = query.from_user # Correct way to get User from CallbackQuery
+    user = query.from_user # Corrected: Get User object from CallbackQuery
     user_id = user.id      
 
     cart = context.user_data.get('cart', [])
@@ -462,12 +474,11 @@ async def order_flow_checkout_cb(update: Update, context: ContextTypes.DEFAULT_T
                 except Exception as e: logger.error(f"Notify admin {admin_id_val} error: {e}")
         
         # Clear cart and temporary product selection keys, preserve language
-        lang=context.user_data.get('language_code')
+        lang=context.user_data.get('language_code'); 
         keys_to_clear_after_checkout = ['cart', 'current_product_id', 'current_product_name', 'current_product_price']
         for key_to_pop in keys_to_clear_after_checkout: context.user_data.pop(key_to_pop, None)
         if lang: context.user_data['language_code']=lang 
         
-        # Send main menu as a new message
         await display_main_menu(update, context, edit_message=False) 
     else: 
         await query.edit_message_text(await _(context,"order_placed_error",user_id=user_id))
@@ -490,13 +501,16 @@ async def my_orders_direct_cb(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # --- Admin Panel and Flows ---
 async def display_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE, edit_message: bool = False) -> int:
-    user = update.effective_user; user_id = user.id
+    user = update.effective_user; 
+    if not user: logger.error("display_admin_panel: effective_user is None"); return ConversationHandler.END
+    user_id = user.id
+
     if not (ADMIN_IDS and user_id in ADMIN_IDS): 
         unauth_text = await _(context,"admin_unauthorized",user_id=user_id)
         target_msg = update.callback_query.message if edit_message and update.callback_query else update.message
         if edit_message and target_msg: await target_msg.edit_text(unauth_text)
         elif update.message: await update.message.reply_text(unauth_text)
-        else: await context.bot.send_message(chat_id=user_id, text=unauth_text)
+        elif user_id : await context.bot.send_message(chat_id=user_id, text=unauth_text)
         return ConversationHandler.END 
     
     context.chat_data['user_id_for_translation'] = user_id 
@@ -512,16 +526,26 @@ async def display_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
     try:
         if edit_message and target_msg: await target_msg.edit_text(title,reply_markup=InlineKeyboardMarkup(kb))
         elif update.message : await update.message.reply_text(title,reply_markup=InlineKeyboardMarkup(kb))
-        else: await context.bot.send_message(chat_id=user_id, text=title,reply_markup=InlineKeyboardMarkup(kb))
-    except Exception as e: logger.warning(f"Display admin panel error: {e}"); await context.bot.send_message(chat_id=user_id, text=title,reply_markup=InlineKeyboardMarkup(kb))
+        elif user_id: await context.bot.send_message(chat_id=user_id, text=title,reply_markup=InlineKeyboardMarkup(kb))
+    except Exception as e: logger.warning(f"Display admin panel error: {e}"); 
+    if user_id: await context.bot.send_message(chat_id=user_id, text=title,reply_markup=InlineKeyboardMarkup(kb))
     return ADMIN_MAIN_PANEL_STATE
 
 async def admin_command_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await display_admin_panel(update,context)
 async def admin_panel_return_direct_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: 
-    if update.callback_query: await update.callback_query.answer()
-    context.user_data.pop('editing_pid', None) 
-    return await display_admin_panel(update,context,edit_message=True)
+    query = update.callback_query
+    logger.info(f"admin_panel_return_direct_cb triggered by user {query.from_user.id if query else 'Unknown'} with data: {query.data if query else 'N/A'}")
+    if query: await query.answer()
+    
+    context.user_data.pop('editing_pid', None) # Clear specific admin context
+    # Add other admin-flow specific keys to pop if they might be lingering from other sub-flows
+    context.user_data.pop('new_pname', None)
+
+    return_state = await display_admin_panel(update,context,edit_message=True)
+    logger.info(f"display_admin_panel (from admin_panel_return_direct_cb) returned state: {return_state}")
+    return return_state
+
 
 # Admin Add Product
 async def admin_add_prod_entry_cb(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
@@ -606,23 +630,19 @@ async def admin_manage_edit_price_state(update: Update, context: ContextTypes.DE
     msg_key = "admin_price_updated" if update_product_in_db(editing_pid,price=new_price) else "admin_price_update_failed"
     await update.message.reply_text(await _(context,msg_key,user_id=user_id,product_id=editing_pid))
     
-    # Go back to options for the same product
-    # Create a mock callback_query to re-trigger admin_manage_prod_selected_cb
+    # Go back to options for the same product by simulating a callback
     class MockQueryForOptions: pass
-    mock_query = MockQueryForOptions()
-    mock_query.from_user = update.effective_user
-    # The message to edit would be the one that prompted for price, or the user's price message.
-    # It's cleaner to edit the bot's prompt message if we had its context.
-    # Since we're after a user message, use that message context for editing.
-    mock_query.message = update.message 
-    mock_query.data = f"admin_manage_select_prod_{editing_pid}" # This makes admin_manage_prod_selected_cb run
-    async def temp_answer_options(): pass
-    mock_query.answer = temp_answer_options
+    mock_q = MockQueryForOptions()
+    mock_q.from_user = update.effective_user
+    # We need the message that displayed the options, or the prompt for price.
+    # This is tricky after a MessageHandler. Best is to use the user's message as context.
+    mock_q.message = update.message 
+    mock_q.data = f"admin_manage_select_prod_{editing_pid}"
+    async def temp_ans(): pass; mock_q.answer = temp_ans
     
-    mock_update_for_options = Update(update_id=0, callback_query=mock_query)
-    mock_update_for_options.effective_user = update.effective_user # Ensure this is set
-
-    return await admin_manage_prod_selected_cb(mock_update_for_options, context)
+    mock_upd = Update(update_id=0, callback_query=mock_q) # Create a mock Update object
+    mock_upd.effective_user = update.effective_user # Ensure effective_user is set
+    return await admin_manage_prod_selected_cb(mock_upd, context)
 
 
 async def admin_manage_toggle_avail_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -699,7 +719,8 @@ async def general_cancel_command_handler(update: Update, context: ContextTypes.D
         if update.effective_chat: await context.bot.send_message(chat_id=update.effective_chat.id, text=cancel_text)
 
     lang = context.user_data.get('language_code')
-    keys_to_pop = ['cart','current_product_id','current_product_name','current_product_price','new_pname','editing_pid']
+    # Clear only transient conversation data, preserve cart and language by default on a general cancel
+    keys_to_pop = ['current_product_id','current_product_name','current_product_price','new_pname','editing_pid']
     for key in keys_to_pop: context.user_data.pop(key, None)
     if lang: context.user_data['language_code'] = lang
     
@@ -779,11 +800,13 @@ def main() -> None:
                 CallbackQueryHandler(admin_manage_edit_price_entry_cb, pattern="^admin_manage_edit_price_entry_cb$"),
                 CallbackQueryHandler(admin_manage_toggle_avail_cb, pattern="^admin_manage_toggle_avail_cb_(0|1)$"),
                 CallbackQueryHandler(admin_manage_delete_confirm_cb, pattern="^admin_manage_delete_confirm_cb$"),
+                # "Back to product list" from options
                 CallbackQueryHandler(admin_manage_prod_list_entry_cb, pattern="^admin_manage_prod_list_refresh_cb$") 
             ],
             ADMIN_MANAGE_PROD_EDIT_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, admin_manage_edit_price_state)],
             ADMIN_MANAGE_PROD_DELETE_CONFIRM: [
                 CallbackQueryHandler(admin_manage_delete_do_cb, pattern="^admin_manage_delete_do_cb$"),
+                # If user clicks "No" on delete confirm, which has CB admin_manage_select_prod_{pid}
                 CallbackQueryHandler(admin_manage_prod_selected_cb, pattern="^admin_manage_select_prod_\d+$") 
             ]
         },
