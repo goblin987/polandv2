@@ -68,4 +68,9 @@
     "admin_shopping_list_title": "🛒 Poland Shopping List (Aggregated Totals):\n\n",
     "admin_shopping_list_item_format": "- {name}: {total_quantity:.2f} kg\n",
     "admin_panel_exit_message": "Exited admin panel."
+    "admin_new_order_notification_title": "🔔 New Order #{order_id} Received!",
+    "admin_order_from": "Order from: {name} (@{username}, ID: {customer_id})",
+    "admin_order_items_header": "Order Details:",
+    "admin_order_item_line_format": "{index}. {item_name}: {quantity} kg x {price_per_kg:.2f} EUR/kg = {item_subtotal:.2f} EUR",
+    "admin_order_grand_total": "Grand Total: {total_price:.2f} EUR"
   }
