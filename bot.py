@@ -30,16 +30,16 @@ if RENDER_DISK_MOUNT_PATH:
     if not os.path.exists(RENDER_DISK_MOUNT_PATH):
         try:
             os.makedirs(RENDER_DISK_MOUNT_PATH)
-            logger.info(f"Created RENDER_DISK_MOUNT_PATH at {RENDER_DISK_MOUNT_PATH}")
+            # Use print here if logger is not yet configured
+            print(f"INFO: Created RENDER_DISK_MOUNT_PATH at {RENDER_DISK_MOUNT_PATH}")
         except OSError as e:
-            # Use logger if it's already configured, otherwise print
-            print(f"Error creating RENDER_DISK_MOUNT_PATH {RENDER_DISK_MOUNT_PATH}: {e}. Using local bot.db.")
+            print(f"ERROR: Error creating RENDER_DISK_MOUNT_PATH {RENDER_DISK_MOUNT_PATH}: {e}. Using local bot.db.")
             DB_FILE_PATH = "bot.db" 
     else:
         DB_FILE_PATH = os.path.join(RENDER_DISK_MOUNT_PATH, "bot.db")
 else:
     DB_FILE_PATH = "bot.db" 
-DB_NAME = DB_FILE_PATH # Use this global DB_NAME for all sqlite3.connect()
+DB_NAME = DB_FILE_PATH
 
 # Enable logging (configure before first use)
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
@@ -48,10 +48,9 @@ logger = logging.getLogger(__name__)
 
 def load_translations():
     global translations
-    translations = {} # Reset translations dictionary
+    translations = {} 
     for lang_code in ["en", "lt"]:
         try:
-            # Ensure script_dir is correctly determined relative to this file's location
             script_dir = os.path.dirname(os.path.abspath(__file__)) 
             file_path = os.path.join(script_dir, "locales", f"{lang_code}.json")
             with open(file_path, "r", encoding="utf-8") as f:
@@ -105,20 +104,19 @@ async def _(context: ContextTypes.DEFAULT_TYPE, key: str, user_id: int = None, *
          text_to_return = translations.get("en", {}).get(key)
     if text_to_return is None: 
         default_text = kwargs.pop("default", key) 
-        logger.warning(f"Translation key '{key}' not found. Using default/key: '{default_text}'")
+        # logger.warning(f"Translation key '{key}' not found. Using default/key: '{default_text}'") # Can be noisy
         text_to_return = default_text
     
     try:
-        # Only format if it's a string and contains placeholders (or if no kwargs, just return as is)
         if isinstance(text_to_return, str) and (("{" in text_to_return and "}" in text_to_return) or not kwargs):
             return text_to_return.format(**kwargs)
-        return str(text_to_return) # Ensure it's a string if no formatting needed/possible
+        return str(text_to_return) 
     except KeyError as e: 
         logger.warning(f"Missing placeholder {e} for key '{key}' (lang '{lang_code}'). String: '{text_to_return}'. Kwargs: {kwargs}")
-        return text_to_return # Return unformatted string (which might contain placeholders)
+        return text_to_return 
     except Exception as e:
         logger.error(f"Error formatting string for key '{key}': {e}")
-        return key # Fallback to the key itself on other formatting errors
+        return key
 
 
 def init_db():
@@ -171,7 +169,7 @@ def add_product_to_db(name: str, price: float) -> bool:
         cursor.execute("INSERT INTO products (name, price_per_kg) VALUES (?, ?)", (name, price))
         conn.commit()
         return True
-    except sqlite3.IntegrityError:  # For UNIQUE constraint on name
+    except sqlite3.IntegrityError:
         logger.warning(f"Attempted to add duplicate product name: {name}")
         return False
     except sqlite3.Error as e:
@@ -219,7 +217,7 @@ def update_product_in_db(product_id: int, name: str = None, price: float = None,
     if price is not None: fields.append("price_per_kg = ?"); params.append(price)
     if is_available is not None: fields.append("is_available = ?"); params.append(is_available)
     
-    if not fields: conn.close(); return False # No fields to update
+    if not fields: conn.close(); return False
     
     params.append(product_id)
     query = f"UPDATE products SET {', '.join(fields)} WHERE id = ?"
@@ -255,7 +253,7 @@ def save_order_to_db(user_id: int, user_name: str, cart: list, total_price: floa
     try:
         conn.execute("BEGIN TRANSACTION")
         cursor.execute("INSERT INTO orders (user_id, user_name, order_date, total_price, status) VALUES (?, ?, ?, ?, ?)", 
-                       (user_id, user_name, order_date, total_price, 'pending')) # Default status 'pending'
+                       (user_id, user_name, order_date, total_price, 'pending'))
         order_id = cursor.lastrowid
         for item in cart: 
             cursor.execute("INSERT INTO order_items (order_id, product_id, quantity_kg, price_at_order) VALUES (?, ?, ?, ?)", 
@@ -308,37 +306,37 @@ def get_shopping_list_from_db() -> list:
         conn.close()
     return shopping_list
 
-def delete_completed_orders_from_db() -> int:
+def delete_completed_orders_from_db() -> int: 
     conn = sqlite3.connect(DB_NAME); cursor = conn.cursor(); deleted_count = 0
     try:
         cursor.execute("SELECT id FROM orders WHERE status = ?", ('completed',))
         completed_order_ids = [row[0] for row in cursor.fetchall()]
         if not completed_order_ids: conn.close(); return 0
         conn.execute("BEGIN TRANSACTION")
-        for order_id in completed_order_ids:
-            cursor.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
-            cursor.execute("DELETE FROM orders WHERE id = ? AND status = ?", (order_id, 'completed'))
+        for order_id_val in completed_order_ids: # Renamed loop variable
+            cursor.execute("DELETE FROM order_items WHERE order_id = ?", (order_id_val,))
+            cursor.execute("DELETE FROM orders WHERE id = ? AND status = ?", (order_id_val, 'completed'))
             deleted_count += cursor.rowcount 
         conn.commit()
     except sqlite3.Error as e: 
         logger.error(f"DB error deleting completed orders: {e}")
         if conn: conn.rollback()
-        deleted_count = -1 # Indicate error
+        deleted_count = -1 
     finally: 
         if conn: conn.close()
     return deleted_count
 
-def mark_order_as_completed_in_db(order_id: int) -> bool:
+def mark_order_as_completed_in_db(order_id_to_mark: int) -> bool:
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     success = False
     try:
-        cursor.execute("UPDATE orders SET status = ? WHERE id = ?", ('completed', order_id))
+        cursor.execute("UPDATE orders SET status = ? WHERE id = ?", ('completed', order_id_to_mark))
         conn.commit()
         if cursor.rowcount > 0:
             success = True
     except sqlite3.Error as e:
-        logger.error(f"DB error marking order {order_id} as completed: {e}")
+        logger.error(f"DB error marking order {order_id_to_mark} as completed: {e}")
     finally:
         conn.close()
     return success
@@ -351,9 +349,8 @@ def mark_order_as_completed_in_db(order_id: int) -> bool:
  ADMIN_MAIN_PANEL_STATE, 
  ADMIN_ADD_PROD_NAME, ADMIN_ADD_PROD_PRICE, 
  ADMIN_MANAGE_PROD_LIST, ADMIN_MANAGE_PROD_OPTIONS, ADMIN_MANAGE_PROD_EDIT_PRICE, ADMIN_MANAGE_PROD_DELETE_CONFIRM,
- ADMIN_CLEAR_ORDERS_CONFIRM, ADMIN_VIEW_ORDER_DETAILS_FOR_STATUS # New state for viewing specific order to change status
-) = range(13) # Range is now 13
-
+ ADMIN_CLEAR_ORDERS_CONFIRM, ADMIN_VIEW_ORDER_DETAILS_FOR_STATUS # Not used yet, but for future order status management
+) = range(13) 
 
 # --- Helper: Display Main Menu ---
 async def display_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edit_message: bool = False):
@@ -369,18 +366,21 @@ async def display_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         elif update.message: await update.message.reply_html(welcome,reply_markup=InlineKeyboardMarkup(kb))
         elif user_id: await context.bot.send_message(chat_id=user_id,text=welcome,reply_markup=InlineKeyboardMarkup(kb),parse_mode='HTML')
     except Exception as e: logger.warning(f"Display main menu error (edit={edit_message}): {e}"); 
-    if user_id and not (edit_message and target) and not update.message: await context.bot.send_message(chat_id=user_id,text=welcome,reply_markup=InlineKeyboardMarkup(kb),parse_mode='HTML')
+    if user_id and not (edit_message and target) and not update.message: # Fallback if initial send failed
+        try: await context.bot.send_message(chat_id=user_id,text=welcome,reply_markup=InlineKeyboardMarkup(kb),parse_mode='HTML')
+        except Exception as send_e: logger.error(f"Fallback display_main_menu send error: {send_e}")
+
 
 # --- Start Command & General Back to Main Menu ---
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE): 
     user = update.effective_user; await ensure_user_exists(user.id,user.first_name or "",user.username or "",context) 
     lang=context.user_data.get('language_code'); cart=context.user_data.get('cart')
     # Clear transient data, preserve language and cart
-    keys_to_clear = [k for k in context.user_data if k not in ['language_code', 'cart']]
+    keys_to_clear = [k for k in context.user_data if k not in ['language_code', 'cart']] 
     for k_to_clear in keys_to_clear: context.user_data.pop(k_to_clear, None)
     if lang: context.user_data['language_code']=lang
     elif user: context.user_data['language_code']=await get_user_language(context,user.id)
-    if cart is not None: context.user_data['cart']=cart # Preserve cart (even if empty list)
+    if cart is not None: context.user_data['cart']=cart 
     await display_main_menu(update, context)
 
 async def back_to_main_menu_cb_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -411,22 +411,40 @@ async def language_selected_state(update: Update, context: ContextTypes.DEFAULT_
 async def order_flow_browse_entry(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
     logger.info(f"User {update.effective_user.id} entered order_flow_browse_entry CB:{update.callback_query.data}")
     q=update.callback_query;await q.answer();return await order_flow_list_products(update,context,q.from_user.id,True)
+
 async def order_flow_list_products(update:Update,context:ContextTypes.DEFAULT_TYPE,uid:int,edit_message:bool=True)->int:
-    q=update.callback_query;prods=get_products_from_db(True);kb,txt=[],""
-    if not prods:txt=await _(context,"no_products_available",user_id=uid);kb.append([InlineKeyboardButton(await _(context,"back_to_main_menu_button",user_id=uid),callback_data="main_menu_direct_cb_ender")])
+    query = update.callback_query # This function is mostly called from callbacks or needs a query-like update
+    products = get_products_from_db(available_only=True)
+    keyboard, text_to_send = [], ""
+    if not products:
+        text_to_send = await _(context, "no_products_available", user_id=uid)
+        keyboard.append([InlineKeyboardButton(await _(context, "back_to_main_menu_button", user_id=uid), callback_data="main_menu_direct_cb_ender")])
     else:
-        txt=await _(context,"products_title",user_id=uid)
-        for pid,name,price,_avail in prods:kb.append([InlineKeyboardButton(f"{name} - {price:.2f} EUR/kg",callback_data=f"order_flow_select_prod_{pid}")])
-        kb.append([InlineKeyboardButton(await _(context,"view_cart_button",user_id=uid),callback_data="order_flow_view_cart_state_cb")])
-        kb.append([InlineKeyboardButton(await _(context,"back_to_main_menu_button",user_id=uid),callback_data="main_menu_direct_cb_ender")])
-    target=q.message if q else update.message
+        text_to_send = await _(context, "products_title", user_id=uid)
+        for pid, name, price, _avail in products: 
+            keyboard.append([InlineKeyboardButton(f"{name} - {price:.2f} EUR/kg", callback_data=f"order_flow_select_prod_{pid}")])
+        keyboard.append([InlineKeyboardButton(await _(context, "view_cart_button", user_id=uid), callback_data="order_flow_view_cart_state_cb")])
+        keyboard.append([InlineKeyboardButton(await _(context, "back_to_main_menu_button", user_id=uid), callback_data="main_menu_direct_cb_ender")])
+    
+    target_message = query.message if query else update.message 
     try:
-        if edit_message and q and target:await target.edit_text(text=txt,reply_markup=InlineKeyboardMarkup(kb))
-        elif update.message and target:await target.reply_text(text=txt,reply_markup=InlineKeyboardMarkup(kb))
-        elif q and not edit_message and target:await target.reply_text(text=txt,reply_markup=InlineKeyboardMarkup(kb))
-        elif uid:await context.bot.send_message(chat_id=uid,text=txt,reply_markup=InlineKeyboardMarkup(kb))
-    except Exception as e:logger.error(f"Err order_flow_list_products(edit={edit_message}):{e}");if uid:await context.bot.send_message(chat_id=uid,text=txt,reply_markup=InlineKeyboardMarkup(kb))
+        if edit_message and query and target_message: 
+            await target_message.edit_text(text=text_to_send, reply_markup=InlineKeyboardMarkup(keyboard))
+        elif update.message and target_message : 
+            await target_message.reply_text(text=text_to_send, reply_markup=InlineKeyboardMarkup(keyboard))
+        elif query and not edit_message and target_message: 
+             await target_message.reply_text(text=text_to_send, reply_markup=InlineKeyboardMarkup(keyboard))
+        elif uid: 
+            await context.bot.send_message(chat_id=uid, text=text_to_send, reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception as e:
+        logger.error(f"Error in order_flow_list_products (edit={edit_message}): {e}")
+        if uid: # Fallback send
+            try:
+                await context.bot.send_message(chat_id=uid, text=text_to_send, reply_markup=InlineKeyboardMarkup(keyboard))
+            except Exception as send_e:
+                logger.error(f"Fallback send_message in order_flow_list_products also failed: {send_e}")
     return ORDER_FLOW_BROWSING_PRODUCTS
+
 async def order_flow_product_selected(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
     q=update.callback_query;await q.answer();uid=q.from_user.id
     try:pid=int(q.data.split('_')[-1])
@@ -480,9 +498,9 @@ async def order_flow_remove_item_cb(update:Update,context:ContextTypes.DEFAULT_T
     else:await q.message.reply_text(await _(context,"invalid_item_to_remove",user_id=uid))
     return await order_flow_display_cart(update,context,uid,True)
 async def order_flow_checkout_cb(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
-    q=update.callback_query;await q.answer();user=q.from_user;uid=user.id;cart=context.user_data.get('cart',[])
+    q=update.callback_query;await q.answer();user=q.from_user;uid=user.id;cart=context.user_data.get('cart',[]) # Corrected user
     if not cart:await q.edit_message_text(await _(context,"cart_empty",user_id=uid));return ORDER_FLOW_VIEWING_CART
-    uname=user.full_name or "N/A";total=sum(i['price']*i['quantity'] for i in cart);oid=save_order_to_db(uid,uname,cart,total)
+    uname=(user.full_name or "N/A");total=sum(i['price']*i['quantity'] for i in cart);oid=save_order_to_db(uid,uname,cart,total)
     admin_lang_uid=ADMIN_IDS[0] if ADMIN_IDS else None
     if oid:
         await q.edit_message_text(await _(context,"order_placed_success",user_id=uid,order_id=oid,total_price=total))
@@ -505,7 +523,7 @@ async def order_flow_checkout_cb(update:Update,context:ContextTypes.DEFAULT_TYPE
         kb=[[InlineKeyboardButton(await _(context,"view_cart_button",user_id=uid),callback_data="order_flow_view_cart_state_cb")],[InlineKeyboardButton(await _(context,"back_to_main_menu_button",user_id=uid),callback_data="main_menu_direct_cb_ender")]]
         next_txt=await _(context,"what_next_prompt",user_id=uid,default="What next?");
         try:await q.message.reply_text(next_txt,reply_markup=InlineKeyboardMarkup(kb))
-        except AttributeError: await context.bot.send_message(chat_id=uid,text=next_txt,reply_markup=InlineKeyboardMarkup(kb)) # If q.message is None
+        except AttributeError: await context.bot.send_message(chat_id=uid,text=next_txt,reply_markup=InlineKeyboardMarkup(kb)) 
         return ORDER_FLOW_VIEWING_CART
     return ConversationHandler.END
 async def my_orders_direct_cb(update:Update,context:ContextTypes.DEFAULT_TYPE):
@@ -522,28 +540,41 @@ async def display_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not user: logger.error("display_admin_panel: effective_user is None"); return ConversationHandler.END
     user_id = user.id
     if not (ADMIN_IDS and user_id in ADMIN_IDS): 
-        unauth_text=await _(context,"admin_unauthorized",user_id=user_id);target=update.callback_query.message if edit_message and update.callback_query else update.message
-        if edit_message and target:await target.edit_text(unauth_text)
-        elif update.message:await update.message.reply_text(unauth_text)
-        elif user_id:await context.bot.send_message(chat_id=user_id,text=unauth_text)
+        unauth_text = await _(context,"admin_unauthorized",user_id=user_id)
+        target_msg = update.callback_query.message if edit_message and update.callback_query else update.message
+        if edit_message and target_msg: await target_msg.edit_text(unauth_text)
+        elif update.message: await update.message.reply_text(unauth_text)
+        elif user_id : await context.bot.send_message(chat_id=user_id, text=unauth_text)
         return ConversationHandler.END 
-    context.chat_data['user_id_for_translation']=user_id 
-    kb=[[InlineKeyboardButton(await _(context,"admin_add_product_button",user_id=user_id),callback_data="admin_add_prod_entry_cb")],[InlineKeyboardButton(await _(context,"admin_manage_products_button",user_id=user_id),callback_data="admin_manage_prod_list_entry_cb")],[InlineKeyboardButton(await _(context,"admin_view_orders_button",user_id=user_id),callback_data="admin_view_orders_direct_cb")],[InlineKeyboardButton(await _(context,"admin_shopping_list_button",user_id=user_id),callback_data="admin_shop_list_direct_cb")],[InlineKeyboardButton(await _(context,"admin_clear_orders_button",user_id=user_id,default="🧹 Clear Orders"),callback_data="admin_clear_orders_entry_cb")],[InlineKeyboardButton(await _(context,"admin_exit_button",user_id=user_id),callback_data="main_menu_direct_cb_ender")]]
-    title=await _(context,"admin_panel_title",user_id=user_id);target=update.callback_query.message if edit_message and update.callback_query else update.message
+    context.chat_data['user_id_for_translation'] = user_id 
+    kb = [
+        [InlineKeyboardButton(await _(context,"admin_add_product_button",user_id=user_id),callback_data="admin_add_prod_entry_cb")],
+        [InlineKeyboardButton(await _(context,"admin_manage_products_button",user_id=user_id),callback_data="admin_manage_prod_list_entry_cb")],
+        [InlineKeyboardButton(await _(context,"admin_view_orders_button",user_id=user_id),callback_data="admin_view_orders_direct_cb")],
+        [InlineKeyboardButton(await _(context,"admin_shopping_list_button",user_id=user_id),callback_data="admin_shop_list_direct_cb")],
+        [InlineKeyboardButton(await _(context,"admin_clear_orders_button", user_id=user_id, default="🧹 Clear Completed Orders"), callback_data="admin_clear_orders_entry_cb")],
+        [InlineKeyboardButton(await _(context,"admin_exit_button",user_id=user_id),callback_data="main_menu_direct_cb_ender")] 
+    ]
+    title = await _(context,"admin_panel_title",user_id=user_id)
+    target_msg = update.callback_query.message if edit_message and update.callback_query else update.message
     try:
-        if edit_message and target:await target.edit_text(title,reply_markup=InlineKeyboardMarkup(kb))
-        elif update.message:await update.message.reply_text(title,reply_markup=InlineKeyboardMarkup(kb))
-        elif user_id:await context.bot.send_message(chat_id=user_id,text=title,reply_markup=InlineKeyboardMarkup(kb))
-    except Exception as e:logger.warning(f"Disp admin panel err:{e}");if user_id and not(edit_message and target)and not update.message:await context.bot.send_message(chat_id=user_id,text=title,reply_markup=InlineKeyboardMarkup(kb))
+        if edit_message and target_msg: await target_msg.edit_text(title,reply_markup=InlineKeyboardMarkup(kb))
+        elif update.message : await update.message.reply_text(title,reply_markup=InlineKeyboardMarkup(kb))
+        elif user_id: await context.bot.send_message(chat_id=user_id, text=title,reply_markup=InlineKeyboardMarkup(kb))
+    except Exception as e: logger.warning(f"Display admin panel error: {e}"); 
+    if user_id and not (edit_message and target_msg) and not update.message : 
+        try: await context.bot.send_message(chat_id=user_id, text=title,reply_markup=InlineKeyboardMarkup(kb))
+        except Exception as send_e: logger.error(f"Fallback display_admin_panel send error: {send_e}")
     return ADMIN_MAIN_PANEL_STATE
 
 async def admin_command_entry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return await display_admin_panel(update,context)
 async def admin_panel_return_direct_cb(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int: 
-    q=update.callback_query;logger.info(f"admin_panel_return_direct_cb by {q.from_user.id if q else 'Unk'} data:{q.data if q else 'N/A'}")
-    if q:await q.answer()
-    context.user_data.pop('editing_pid',None);context.user_data.pop('new_pname',None)
-    return_state=await display_admin_panel(update,context,True);logger.info(f"display_admin_panel ret state:{return_state}");return return_state
+    query = update.callback_query
+    logger.info(f"admin_panel_return_direct_cb triggered by user {query.from_user.id if query else 'Unknown'} with data: {query.data if query else 'N/A'}")
+    if query: await query.answer()
+    context.user_data.pop('editing_pid', None); context.user_data.pop('new_pname', None)
+    return_state = await display_admin_panel(update,context,True);logger.info(f"display_admin_panel ret state:{return_state}");return return_state
 
 # Admin Add Product
 async def admin_add_prod_entry_cb(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
@@ -551,15 +582,15 @@ async def admin_add_prod_entry_cb(update:Update,context:ContextTypes.DEFAULT_TYP
 async def admin_add_prod_name_state(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
     uid=update.effective_user.id;pname=update.message.text;context.user_data['new_pname']=pname;await update.message.reply_text(await _(context,"admin_enter_product_price",user_id=uid,product_name=pname));return ADMIN_ADD_PROD_PRICE
 async def admin_add_prod_price_state(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
-    uid=update.effective_user.id;name=context.user_data.get('new_pname')
-    try:price=float(update.message.text);assert price>0
-    except:await update.message.reply_text(await _(context,"admin_invalid_price",user_id=uid));return ADMIN_ADD_PROD_PRICE
-    if not name:await update.message.reply_text(await _(context,"generic_error_message",user_id=uid,default="Error."));return await display_admin_panel(update,context,False)
-    fmt_kwargs={'user_id':uid,'product_name':name};msg_key="admin_product_added" if add_product_to_db(name,price) else "admin_product_add_failed"
-    if msg_key=="admin_product_added":fmt_kwargs['price']=price
-    await update.message.reply_text(await _(context,msg_key,**fmt_kwargs))
-    if 'new_pname' in context.user_data:del context.user_data['new_pname']
-    await display_admin_panel(update,context,False);return ConversationHandler.END
+    user_id=update.effective_user.id; name=context.user_data.get('new_pname')
+    try: price_str = update.message.text; price=float(price_str); assert price>0
+    except: await update.message.reply_text(await _(context,"admin_invalid_price",user_id=user_id)); return ADMIN_ADD_PROD_PRICE
+    if not name: await update.message.reply_text(await _(context,"generic_error_message",user_id=user_id, default="Error.")); return await display_admin_panel(update, context, edit_message=False) 
+    format_kwargs={'user_id':user_id,'product_name':name}; msg_key="admin_product_added" if add_product_to_db(name,price) else "admin_product_add_failed"
+    if msg_key=="admin_product_added": format_kwargs['price']=price
+    await update.message.reply_text(await _(context,msg_key,**format_kwargs))
+    if 'new_pname' in context.user_data: del context.user_data['new_pname']
+    await display_admin_panel(update, context, edit_message=False); return ConversationHandler.END
 
 # Admin Manage Products
 async def admin_manage_prod_list_entry_cb(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
@@ -567,7 +598,7 @@ async def admin_manage_prod_list_entry_cb(update:Update,context:ContextTypes.DEF
     if not prods:txt=await _(context,"admin_no_products_to_manage",user_id=uid);kb.append([InlineKeyboardButton(await _(context,"admin_back_to_admin_panel_button",user_id=uid),callback_data="admin_panel_return_direct_cb")])
     else:
         txt=await _(context,"admin_select_product_to_manage",user_id=uid)
-        for pid,name,price,avail in prods:stat_key="admin_status_available" if avail else "admin_status_unavailable";stat=await _(context,stat_key,user_id=uid,default="Avail" if avail else "Unavail");kb.append([InlineKeyboardButton(f"{name} - {price:.2f} EUR ({stat})",callback_data=f"admin_manage_select_prod_{pid}")])
+        for pid,name,price,avail in prods:stat_key="admin_status_available" if avail else "admin_status_unavailable";stat=await _(context,stat_key,user_id=uid,default="Available" if avail else "Unavailable");kb.append([InlineKeyboardButton(f"{name} - {price:.2f} EUR ({stat})",callback_data=f"admin_manage_select_prod_{pid}")])
         kb.append([InlineKeyboardButton(await _(context,"admin_back_to_admin_panel_button",user_id=uid),callback_data="admin_panel_return_direct_cb")])
     await q.edit_message_text(text=txt,reply_markup=InlineKeyboardMarkup(kb));return ADMIN_MANAGE_PROD_LIST
 async def admin_manage_prod_selected_cb(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
@@ -593,7 +624,7 @@ async def admin_manage_edit_price_state(update:Update,context:ContextTypes.DEFAU
     msg_key="admin_price_updated" if update_product_in_db(edit_pid,price=price_new) else "admin_price_update_failed"
     await update.message.reply_text(await _(context,msg_key,user_id=uid,product_id=edit_pid))
     class MQ:from_user=update.effective_user;message=update.message;data=f"admin_manage_select_prod_{edit_pid}";async def answer():pass
-    mq=MQ();m_upd=Update(0,callback_query=mq);m_upd.effective_user=update.effective_user
+    mq=MQ();mq.answer=MQ.answer;m_upd=Update(0,callback_query=mq);m_upd.effective_user=update.effective_user
     return await admin_manage_prod_selected_cb(m_upd,context)
 async def admin_manage_toggle_avail_cb(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
     q=update.callback_query;await q.answer();uid=q.from_user.id;edit_pid=context.user_data.get('editing_pid')
@@ -622,7 +653,7 @@ async def admin_manage_delete_do_cb(update:Update,context:ContextTypes.DEFAULT_T
 async def admin_clear_completed_orders_entry_cb(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
     q=update.callback_query;await q.answer();uid=q.from_user.id
     confirm_txt=await _(context,"admin_clear_orders_confirm_prompt",user_id=uid,default="Sure to delete COMPLETED orders?");yes_txt=await _(context,"admin_clear_orders_yes_button",user_id=uid,default="YES, Delete");no_txt=await _(context,"admin_clear_orders_no_button",user_id=uid,default="NO, Cancel")
-    kb=[[InlineKeyboardButton(yes_txt,callback_data="admin_clear_orders_do_confirm")],[InlineKeyboardButton(no_txt,callback_data="admin_panel_return_direct_cb")]] # No on confirm goes to admin panel
+    kb=[[InlineKeyboardButton(yes_txt,callback_data="admin_clear_orders_do_confirm")],[InlineKeyboardButton(no_txt,callback_data="admin_panel_return_direct_cb")]]
     await q.edit_message_text(text=confirm_txt,reply_markup=InlineKeyboardMarkup(kb));return ADMIN_CLEAR_ORDERS_CONFIRM
 async def admin_clear_orders_do_confirm_cb(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
     q=update.callback_query;await q.answer();uid=q.from_user.id
@@ -631,12 +662,8 @@ async def admin_clear_orders_do_confirm_cb(update:Update,context:ContextTypes.DE
     if deleted_count>0:msg=await _(context,"admin_orders_cleared_success",user_id=uid,count=deleted_count,default=f"{deleted_count} orders cleared.")
     elif deleted_count==0:msg=await _(context,"admin_orders_cleared_none",user_id=uid,default="No completed orders.")
     else:msg=await _(context,"admin_orders_cleared_error",user_id=uid,default="Error clearing.")
-    await q.edit_message_text(text=msg) # Show result
-    # After showing result, display admin panel again. We need to make display_admin_panel the return target.
-    # The ConversationHandler will end, and then we need to be back at the admin panel.
-    # This call will edit the message again to show the admin panel.
+    await q.edit_message_text(text=msg) 
     return await display_admin_panel(update,context,True)
-
 
 # Direct Admin Actions
 async def admin_view_orders_direct_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -646,12 +673,10 @@ async def admin_view_orders_direct_cb(update: Update, context: ContextTypes.DEFA
     if orders:
         for oid, cust_id_db, uname, date_val, total_val, status_val, items_val in orders: 
             text+=await _(context,"admin_order_details_format",user_id=uid,order_id=oid,user_name=uname,customer_id=cust_id_db,date=date_val,total=total_val,status=status_val.capitalize(),items=items_val, default="Order...")
-    if len(text)>4000:text=text[:3950]+"\n...(truncated)" # Ensure space for buttons
+    if len(text)>4000:text=text[:3950]+"\n...(truncated)"
     kb=[[InlineKeyboardButton(await _(context,"admin_back_to_admin_panel_button",user_id=uid),callback_data="admin_panel_return_direct_cb")]]
     try: await q.edit_message_text(text=text,reply_markup=InlineKeyboardMarkup(kb))
     except Exception as e: logger.error(f"Error admin_view_orders: {e}"); await q.message.reply_text("Error displaying orders.")
-
-
 async def admin_shop_list_direct_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q=update.callback_query;await q.answer();uid=q.from_user.id
     slist=get_shopping_list_from_db()
@@ -662,7 +687,6 @@ async def admin_shop_list_direct_cb(update: Update, context: ContextTypes.DEFAUL
     try: await q.edit_message_text(text=text,reply_markup=InlineKeyboardMarkup(kb))
     except Exception as e: logger.error(f"Error admin_shop_list: {e}"); await q.message.reply_text("Error displaying shopping list.")
 
-
 # General Cancel Handler
 async def general_cancel_command_handler(update:Update,context:ContextTypes.DEFAULT_TYPE)->int:
     uid=update.effective_user.id;edit,target_msg=False,update.message
@@ -672,12 +696,16 @@ async def general_cancel_command_handler(update:Update,context:ContextTypes.DEFA
         if edit and target_msg:await target_msg.edit_text(cancel_txt)
         elif target_msg:await target_msg.reply_text(cancel_txt,reply_markup=ReplyKeyboardRemove())
         elif update.effective_chat:await context.bot.send_message(chat_id=update.effective_chat.id,text=cancel_txt)
-    except Exception as e:logger.warning(f"Cancel err:{e}");if update.effective_chat and not(edit and target_msg):await context.bot.send_message(chat_id=update.effective_chat.id,text=cancel_txt)
+    except Exception as e:logger.warning(f"Cancel err:{e}");
+    if update.effective_chat and not(edit and target_msg): # Avoid double send if edit failed but chat exists
+        try: await context.bot.send_message(chat_id=update.effective_chat.id,text=cancel_txt)
+        except Exception as send_e: logger.error(f"Fallback cancel send error: {send_e}")
+
     lang=context.user_data.get('language_code');cart_data=context.user_data.get('cart') 
     keys_pop=['current_product_id','current_product_name','current_product_price','new_pname','editing_pid']
     for k in keys_pop:context.user_data.pop(k,None)
     if lang:context.user_data['language_code']=lang
-    if cart_data is not None: context.user_data['cart'] = cart_data # Preserve cart on general cancel
+    if cart_data is not None: context.user_data['cart'] = cart_data 
     
     if ADMIN_IDS and uid in ADMIN_IDS:await display_admin_panel(update,context,edit_message=edit if target_msg else False)
     else:await display_main_menu(update,context,edit_message=edit if target_msg else False)
@@ -688,7 +716,7 @@ def main() -> None:
     if not TELEGRAM_TOKEN: logger.critical("TELEGRAM_TOKEN missing!"); return
     if not ADMIN_TELEGRAM_ID: logger.critical("ADMIN_TELEGRAM_ID missing!"); return
     try: ADMIN_IDS = [int(aid.strip()) for aid in ADMIN_TELEGRAM_ID.split(',')]
-    except: logger.critical("Admin IDs invalid!"); return
+    except ValueError: logger.critical("Admin IDs invalid! Must be comma-separated numbers."); return # More specific error
     
     load_translations(); 
     if not translations.get("en") or not translations.get("lt"): logger.critical("Translations missing after load attempt!"); return
@@ -712,7 +740,7 @@ def main() -> None:
     lang_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(select_language_entry, pattern="^select_language_entry$")],
         states={SELECT_LANGUAGE_STATE: [CallbackQueryHandler(language_selected_state, pattern="^lang_select_(en|lt)$")]},
-        fallbacks=user_conv_fallbacks # Language selection is a user flow
+        fallbacks=user_conv_fallbacks
     )
 
     order_conv = ConversationHandler(
@@ -765,7 +793,7 @@ def main() -> None:
         },
         fallbacks=admin_conv_fallbacks
     )
-
+    
     admin_clear_orders_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(admin_clear_completed_orders_entry_cb, pattern="^admin_clear_orders_entry_cb$")],
         states={
@@ -783,7 +811,7 @@ def main() -> None:
     application.add_handler(order_conv)
     application.add_handler(admin_add_prod_conv)
     application.add_handler(admin_manage_prod_conv)
-    application.add_handler(admin_clear_orders_conv) # Add the new conversation handler
+    application.add_handler(admin_clear_orders_conv) 
     
     application.add_handler(CallbackQueryHandler(my_orders_direct_cb, pattern="^my_orders_direct_cb$"))
     application.add_handler(CallbackQueryHandler(admin_view_orders_direct_cb, pattern="^admin_view_orders_direct_cb$"))
