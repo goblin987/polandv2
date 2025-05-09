@@ -1,4 +1,3 @@
---- START OF FILE bot.py ---
 
 import logging
 import sqlite3
