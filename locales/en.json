@@ -38,6 +38,7 @@
   "admin_manage_products_button": "✏️ Manage Products",
   "admin_view_orders_button": "📦 View All Orders",
   "admin_shopping_list_button": "📊 Shopping List (Totals)",
+  "admin_clear_orders_button": "🧹 Clear Completed Orders",
   "admin_exit_button": "⬅️ Exit Admin Panel (To Main Menu)",
   "admin_enter_product_name": "Enter the name of the new product:",
   "admin_enter_product_price": "Product name: {product_name}.\nNow enter its price per kg (e.g., 2.99):",
@@ -79,5 +80,12 @@
   "admin_order_from": "Order from: {name} (@{username}, ID: {customer_id})",
   "admin_order_items_header": "Order Details:",
   "admin_order_item_line_format": "{index}. {item_name}: {quantity} kg x {price_per_kg:.2f} EUR/kg = {item_subtotal:.2f} EUR",
-  "admin_order_grand_total": "Grand Total: {total_price:.2f} EUR"
+  "admin_order_grand_total": "Grand Total: {total_price:.2f} EUR",
+  "admin_clear_orders_confirm_prompt": "Are you sure you want to delete ALL COMPLETED orders? This cannot be undone.",
+  "admin_clear_orders_yes_button": "YES, Delete Completed Orders",
+  "admin_clear_orders_no_button": "NO, Cancel",
+  "admin_orders_cleared_success": "{count} completed orders have been cleared.",
+  "admin_orders_cleared_none": "No completed orders found to clear.",
+  "admin_orders_cleared_error": "An error occurred while clearing completed orders.",
+  "admin_error_refreshing_menu": "Price updated, but the menu couldn't refresh automatically. Please navigate back to the product list to see changes."
 }
