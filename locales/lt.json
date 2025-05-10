@@ -38,6 +38,7 @@
   "admin_manage_products_button": "✏️ Tvarkyti produktus",
   "admin_view_orders_button": "📦 Peržiūrėti visus užsakymus",
   "admin_shopping_list_button": "📊 Pirkinių sąrašas (sumos)",
+  "admin_clear_orders_button": "🧹 Išvalyti įvykdytus užsakymus",
   "admin_exit_button": "⬅️ Išeiti iš administratoriaus skydelio (į pagrindinį meniu)",
   "admin_enter_product_name": "Įveskite naujo produkto pavadinimą:",
   "admin_enter_product_price": "Produkto pavadinimas: {product_name}.\nDabar įveskite jo kainą už kg (pvz., 2.99):",
@@ -79,5 +80,12 @@
   "admin_order_from": "Užsakė: {name} (@{username}, ID: {customer_id})",
   "admin_order_items_header": "Užsakymo informacija:",
   "admin_order_item_line_format": "{index}. {item_name}: {quantity} kg x {price_per_kg:.2f} EUR/kg = {item_subtotal:.2f} EUR",
-  "admin_order_grand_total": "Bendra suma: {total_price:.2f} EUR"
+  "admin_order_grand_total": "Bendra suma: {total_price:.2f} EUR",
+  "admin_clear_orders_confirm_prompt": "Ar tikrai norite ištrinti VISUS ĮVYKDYTUS užsakymus? Šio veiksmo negalima atšaukti.",
+  "admin_clear_orders_yes_button": "TAIP, Ištrinti įvykdytus",
+  "admin_clear_orders_no_button": "NE, Atšaukti",
+  "admin_orders_cleared_success": "Išvalyta {count} įvykdytų užsakymų.",
+  "admin_orders_cleared_none": "Nerasta įvykdytų užsakymų, kuriuos būtų galima išvalyti.",
+  "admin_orders_cleared_error": "Įvyko klaida valant įvykdytus užsakymus.",
+  "admin_error_refreshing_menu": "Kaina atnaujinta, bet meniu nepavyko automatiškai atnaujinti. Prašome grįžti į produktų sąrašą, kad pamatytumėte pakeitimus."
 }
